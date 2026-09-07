@@ -2,7 +2,9 @@
 
 > 查到一个词，召回牌组里已有的卡。
 
-**Recaller** 表示把已经存在于完整牌组中的卡片召回到眼前：在 GoldenDict 查词时找到对应卡片，并把它送入当前学习队列。
+`goldendict-anki-recaller` 是一个针对 [GoldenDict-ng](https://github.com/xiaoyifang/goldendict-ng) 与 [Anki](https://apps.ankiweb.net/) 的联动插件，通过 [AnkiConnect](https://github.com/FooSoft/anki-connect) 查询牌组并执行提队。
+
+**Recaller** 表示把已经存在于完整牌组中的卡片召回到眼前：在 GoldenDict-ng 查词时找到对应卡片，并把它送入 Anki 当前学习队列。
 
 这个项目面向已经拥有完整预制牌组的学习者。阅读时在 GoldenDict 查到一个词，程序会在现有牌组中检索对应卡片，列出不同义项供选择，再把当前语境对应的卡片放到 Anki 当天学习队列首位。
 
@@ -31,6 +33,12 @@ GoldenDict 已有查词后制作并添加 Anki 卡片的方案；本项目解决
 ![所选 tree 义项已加入当前队列首位并在 Anki 中显示](docs/images/study-queue.png)
 
 截图中的牌组和词典内容仅作演示。项目不包含词库或 Anki 牌组，也不依赖特定词库。
+
+## 相关项目
+
+- [GoldenDict-ng](https://github.com/xiaoyifang/goldendict-ng)：提供阅读时的查词界面并运行本项目的 HTML Program。
+- [Anki](https://apps.ankiweb.net/)：保存完整牌组并执行间隔重复学习。
+- [AnkiConnect](https://github.com/FooSoft/anki-connect)：在 GoldenDict-ng 查询端与 Anki 插件之间提供本机 HTTP API。
 
 ## 功能
 
