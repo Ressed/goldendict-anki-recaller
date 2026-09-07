@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.test-tools/node_modules/
+preview.html
+config.json
+vendor/
+dist/
+addon/user_files/
+.venv/
+*.anki2
+*.anki2-*
+*.log

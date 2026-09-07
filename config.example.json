@@ -1,0 +1,11 @@
+{
+  "url": "http://127.0.0.1:8765",
+  "deck": "English",
+  "field": "Word",
+  "sense_fields": ["DefinitionTR", "Definition"],
+  "label_fields": ["PoS", "Label"],
+  "lemmatize": true,
+  "case_sensitive": false,
+  "timeout": 10,
+  "api_key": null
+}
