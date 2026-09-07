@@ -55,6 +55,7 @@ GoldenDict 已有查词后制作并添加 Anki 卡片的方案；本项目解决
 | 组件 | 要求 / 验证情况 |
 | --- | --- |
 | Python | 3.10+；查词脚本在 Windows / Python 3.14 验证 |
+| uv | 管理 Python、虚拟环境与锁定依赖；安装方法见 [uv 官方文档](https://docs.astral.sh/uv/getting-started/installation/) |
 | GoldenDict | GoldenDict-ng，需支持词条内 JavaScript；旧版 WebKit 未验证 |
 | Anki | 桌面版 V3 调度器；队列逻辑在 Anki 26.8.1 / Python 3.13 验证 |
 | AnkiConnect | 已安装并启用，默认监听 `127.0.0.1:8765` |
@@ -69,11 +70,11 @@ GoldenDict 已有查词后制作并添加 Anki 卡片的方案；本项目解决
 下载或克隆项目到固定目录，例如 `C:\Tools\goldendict-anki-recaller`。在该目录运行：
 
 ```powershell
-python -m pip install --target vendor -r requirements.txt
+uv sync --frozen
 Copy-Item config.example.json config.json
 ```
 
-已有 `config.json` 时保留原文件。依赖安装一次后，运行过程完全离线。
+`uv sync --frozen` 会按照 `uv.lock` 创建 `.venv` 并安装完全一致的依赖版本。已有 `config.json` 时保留原文件；依赖安装完成后，查词过程不需要联网。
 
 ### 2. 配置牌组与字段
 
@@ -98,8 +99,8 @@ Copy-Item config.example.json config.json
 通过只读命令检查连接：
 
 ```powershell
-python anki_lookup.py --inspect --format text
-python anki_lookup.py --format text -- trees
+uv run --frozen python anki_lookup.py --inspect --format text
+uv run --frozen python anki_lookup.py --format text -- trees
 ```
 
 ### 3. 安装 Anki 插件
@@ -113,7 +114,7 @@ python anki_lookup.py --format text -- trees
 生成本项目插件包：
 
 ```powershell
-python scripts/build_release.py
+uv run --frozen python scripts/build_release.py
 ```
 
 在 Anki「工具 → 插件 → 从文件安装」选择 `dist/goldendict-anki-recaller.ankiaddon`，然后重启 Anki。下载的源码发布包已包含该插件包，可直接安装。
@@ -122,10 +123,10 @@ python scripts/build_release.py
 
 ### 4. 接入 GoldenDict
 
-「编辑 → 词典 → 来源 → 程序 / Programs」新增一项，类型选择 **HTML**。将 Python 路径和项目路径替换成实际位置：
+「编辑 → 词典 → 来源 → 程序 / Programs」新增一项，类型选择 **HTML**。先运行一次 `uv sync --frozen`，再将下面的项目路径替换成实际位置：
 
 ```text
-"C:\Path\To\python.exe" "C:\Path\To\Project\anki_lookup.py" -- "%GDWORD%"
+"C:\Tools\goldendict-anki-recaller\.venv\Scripts\python.exe" "C:\Tools\goldendict-anki-recaller\anki_lookup.py" -- "%GDWORD%"
 ```
 
 也可省略词参数，使用 `--stdin` 从标准输入读取查询词。将该程序词典加入正在使用的词典组。
@@ -157,7 +158,7 @@ python scripts/build_release.py
 
 **为什么提示成功却蓝色数字没增加？** 保持总额度的替换不会增加待学新卡总数；牌组列表也不保证反映本机当天计划。
 
-**更新后是否需要重装插件？** 改动 `addon/` 时需重新打包、安装并重启 Anki。仅改查词代码、模板或样式，重新查词即可。缺少新依赖时重新安装 `requirements.txt`。
+**更新后是否需要重装插件？** 改动 `addon/` 时需重新打包、安装并重启 Anki。仅改查词代码、模板或样式，重新查词即可。`pyproject.toml` 或 `uv.lock` 变化后重新运行 `uv sync --frozen`。
 
 ## 项目结构
 
@@ -172,7 +173,9 @@ scripts/build_release.py       # 生成插件与干净的源码发布包
 docs/images/                   # 三张使用演示截图
 config.example.json            # 可提交的配置示例
 config.json                    # 本机配置，Git 忽略
-vendor/                        # 本机安装的依赖，Git 忽略
+pyproject.toml                 # 项目元数据与直接依赖
+uv.lock                        # uv 生成的完整依赖锁
+.venv/                         # uv 创建的本机环境，Git 忽略
 dist/                          # 打包产物，Git 忽略
 ```
 

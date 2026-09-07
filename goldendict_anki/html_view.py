@@ -1,10 +1,8 @@
 """Jinja templates and local assets, emitted as a self-contained dictionary article."""
 from pathlib import Path
-import sys
 import uuid
 
 ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT.parent / 'vendor'))
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 ENV = Environment(loader=FileSystemLoader(ROOT / 'templates'),

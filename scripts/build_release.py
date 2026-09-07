@@ -13,7 +13,8 @@ def build():
         for name in ('__init__.py', 'matching.py', 'priority_queue.py', 'manifest.json'):
             archive.write(ROOT / 'addon' / name, name)
     paths = [ROOT / name for name in ('anki_lookup.py', 'config.example.json',
-             'requirements.txt', 'README.md', 'CONTRIBUTING.md', '.gitignore')]
+             'pyproject.toml', 'uv.lock', 'README.md', 'CONTRIBUTING.md',
+             '.gitignore')]
     for directory in ('goldendict_anki', 'addon', 'tests', 'scripts', 'docs'):
         paths.extend(path for path in (ROOT / directory).rglob('*') if path.is_file()
                      and '__pycache__' not in path.parts and 'user_files' not in path.parts

@@ -1,10 +1,6 @@
 """English inflection fallback for dictionary-headword lookup."""
-from pathlib import Path
 import re
-import sys
 
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT.parent / 'vendor'))
 import simplemma
 
 ENGLISH_WORD = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)*\Z")

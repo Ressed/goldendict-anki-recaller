@@ -3,7 +3,6 @@ __pycache__/
 .test-tools/node_modules/
 preview.html
 config.json
-vendor/
 dist/
 addon/user_files/
 .venv/

@@ -58,10 +58,10 @@
 
 Simplemma 不使用上下文和词性，个别歧义词可能给出不符合当前语境的原形；保留输入词头结果就是为用户提供人工选择。若希望恢复只查原词，将 `config.json` 的 `lemmatize` 改为 `false`。该库是纯 Python、无运行时网络请求，也不需要下载语言模型。
 
-复制项目时保留 `goldendict_anki` 和 `vendor`。缺少依赖时，在项目目录运行：
+复制项目时保留 `goldendict_anki`、`pyproject.toml` 和 `uv.lock`。首次安装或依赖变化后，在项目目录运行：
 
 ```powershell
-python -m pip install --target vendor --upgrade -r requirements.txt
+uv sync --frozen
 ```
 
 也可用 `--stdin` 让 GoldenDict 通过标准输入传词。不要把 `--promote` 写入自动查询命令。
@@ -69,8 +69,8 @@ python -m pip install --target vendor --upgrade -r requirements.txt
 命令行显式操作也使用当前学习队列插队：
 
 ```powershell
-python anki_lookup.py --format text -- tournament
-python anki_lookup.py --promote --card-id 1234567890000 --format text -- tournament
+uv run --frozen python anki_lookup.py --format text -- tournament
+uv run --frozen python anki_lookup.py --promote --card-id 1234567890000 --format text -- tournament
 ```
 
 多张可用新卡必须指定卡片 ID。默认精确匹配词头（去 HTML、合并空白、Unicode NFC、忽略大小写）；`--full-scan` 可完整扫描目标范围，`--inspect` 可检查牌组和字段。
@@ -90,8 +90,8 @@ GoldenDict 的网络拦截器会改写 POST 的 Origin。插件仅对标记为�
 ## 验证
 
 ```powershell
-python -m unittest tests.test_bridge -v
-node tests/test_ui.js
+uv run --frozen python -m unittest tests.test_bridge -v
+uv run --frozen node tests/test_ui.js
 ```
 
 交互测试依赖 `.test-tools` 的 jsdom，可用 `npm ci --prefix .test-tools` 恢复。HTTP 全部模拟。
