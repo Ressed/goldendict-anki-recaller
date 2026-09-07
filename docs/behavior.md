@@ -69,8 +69,8 @@ uv sync --frozen
 命令行显式操作也使用当前学习队列插队：
 
 ```powershell
-uv run --frozen python anki_lookup.py --format text -- tournament
-uv run --frozen python anki_lookup.py --promote --card-id 1234567890000 --format text -- tournament
+uv run --frozen python anki_recall.py --format text -- tournament
+uv run --frozen python anki_recall.py --promote --card-id 1234567890000 --format text -- tournament
 ```
 
 多张可用新卡必须指定卡片 ID。默认精确匹配词头（去 HTML、合并空白、Unicode NFC、忽略大小写）；`--full-scan` 可完整扫描目标范围，`--inspect` 可检查牌组和字段。

@@ -5,7 +5,7 @@ import sys
 import types
 import unittest
 from unittest.mock import Mock, patch
-import anki_lookup as app
+import anki_recall as app
 
 
 def card(cid=1, kind=0, queue=0, deck='English'):

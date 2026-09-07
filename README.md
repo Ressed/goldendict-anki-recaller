@@ -99,8 +99,8 @@ Copy-Item config.example.json config.json
 通过只读命令检查连接：
 
 ```powershell
-uv run --frozen python anki_lookup.py --inspect --format text
-uv run --frozen python anki_lookup.py --format text -- trees
+uv run --frozen python anki_recall.py --inspect --format text
+uv run --frozen python anki_recall.py --format text -- trees
 ```
 
 ### 3. 安装 Anki 插件
@@ -126,7 +126,7 @@ uv run --frozen python scripts/build_release.py
 「编辑 → 词典 → 来源 → 程序 / Programs」新增一项，类型选择 **HTML**。先运行一次 `uv sync --frozen`，再将下面的项目路径替换成实际位置：
 
 ```text
-"C:\Tools\goldendict-anki-recaller\.venv\Scripts\python.exe" "C:\Tools\goldendict-anki-recaller\anki_lookup.py" -- "%GDWORD%"
+"C:\Tools\goldendict-anki-recaller\.venv\Scripts\python.exe" "C:\Tools\goldendict-anki-recaller\anki_recall.py" -- "%GDWORD%"
 ```
 
 也可省略词参数，使用 `--stdin` 从标准输入读取查询词。将该程序词典加入正在使用的词典组。
@@ -163,7 +163,7 @@ uv run --frozen python scripts/build_release.py
 ## 项目结构
 
 ```text
-anki_lookup.py                 # 稳定启动入口，兼容已有 Program 命令
+anki_recall.py                 # GoldenDict Program 启动入口
 goldendict_anki/                # 查询、词形还原、HTML 渲染
   templates/                   # Jinja2 模板
   static/                      # CSS 与 JavaScript

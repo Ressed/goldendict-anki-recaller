@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {execFileSync} = require('node:child_process');
 const {JSDOM} = require('../.test-tools/node_modules/jsdom');
 const html = execFileSync('python', ['-X', 'utf8', '-c', `
-import anki_lookup as a
+import anki_recall as a
 from tests.test_bridge import card
 cs=[card(1),card(2)|{'_matched_word':'lemma'},card(3,queue=-1),card(4,kind=2,queue=2),card(5,queue=-2)]
 print(a.render('first',cs)+a.render('second',[card(6)]))

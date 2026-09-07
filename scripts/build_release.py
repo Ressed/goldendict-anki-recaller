@@ -12,7 +12,7 @@ def build():
     with zipfile.ZipFile(addon, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in ('__init__.py', 'matching.py', 'priority_queue.py', 'manifest.json'):
             archive.write(ROOT / 'addon' / name, name)
-    paths = [ROOT / name for name in ('anki_lookup.py', 'config.example.json',
+    paths = [ROOT / name for name in ('anki_recall.py', 'config.example.json',
              'pyproject.toml', 'uv.lock', 'README.md', 'CONTRIBUTING.md',
              '.gitignore')]
     for directory in ('goldendict_anki', 'addon', 'tests', 'scripts', 'docs'):
