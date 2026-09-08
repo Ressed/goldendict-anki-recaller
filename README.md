@@ -1,6 +1,6 @@
 # goldendict-anki-recaller
 
-从 GoldenDict-ng 查找 Anki 中已有的卡片，选择义项后，将新卡设为**今天到期的复习卡（绿卡）**。不创建笔记或重复卡片。
+在 GoldenDict-ng 中提供查找 Anki 中已有的卡片的功能，选择义项后，将新卡设为**今天到期的复习卡（绿卡）**。不创建笔记或重复卡片。
 
 Anki 端只需要 **AnkiConnect**。提队使用标准 `setDueDate(cards=[id], days="0")`，不安装自定义队列插件、不接管作答或维护当天学习计划。
 
@@ -41,8 +41,6 @@ Copy-Item config.example.json config.json
 
 `deck` 限定检索范围（包括子牌组），`null` 表示整个集合。`field` 是词头字段；释义和标签字段按实际笔记类型填写。若 AnkiConnect 配置了 API key，填写 `api_key` 或设置 `ANKICONNECT_API_KEY` 环境变量。
 
-**从旧版本升级：在 Anki 中删除或禁用 GoldenDict Anki Recaller 自定义插件，保留 AnkiConnect，然后重启 Anki。** 旧插件已经加载的队列补丁需要重启才能解除。当前版本不再发布 `.ankiaddon` 文件。
-
 ## GoldenDict 设置
 
 「编辑 → 词典 → 来源 → 程序 / Programs」新增 **HTML** 程序，将项目路径替换为实际路径：
@@ -50,8 +48,6 @@ Copy-Item config.example.json config.json
 ```text
 "C:\Tools\goldendict-anki-recaller\.venv\Scripts\python.exe" "C:\Tools\goldendict-anki-recaller\anki_recall.py" -- "%GDWORD%"
 ```
-
-已有命令无需修改，更新代码后重新查词即可。不要把 `--promote` 加进自动查询命令。
 
 查到卡片后，默认选中第一张；按义项选择，点击「提队所选卡」，成功后显示“今天到期（绿卡）”。页面等待过久或提交结果不确定时，重新查词后再核对，不自动重试写操作。
 
@@ -79,13 +75,6 @@ uv run --frozen python anki_recall.py --promote --card-id 1234567890000 --format
 
 多张可用新卡必须指定 `--card-id`。解除暂停需同时指定 `--promote --unsuspend`。`--stdin` 从标准输入读取词头；`--full-scan` 可检查整个目标范围。文本和 JSON 输出不启动本地按钮服务，命令行提队直接访问 AnkiConnect。
 
-## 更新与故障排查
-
-- **更新代码后怎么生效？** 重新查询词条，让 GoldenDict 生成新页面。转发代码变更后会自动启动对应版本的服务；旧页面仍可能连接旧服务，不要继续使用。通常无需重启 Anki，只有移除旧自定义队列插件时需要重启。
-- **解除暂停后报错，卡片仍是新卡？** 解除暂停与设置到期日是两个独立操作。重新查词确认状态：若已是未暂停的新卡，直接提队；若已是复习卡，则不要重复操作。当前实现按解除暂停后的实际状态判断成功，兼容 AnkiConnect 返回 `null` 的情况。
-- **报 `is:filtered` 搜索无效？** 这是旧版代码的错误语法，当前已改用 `deck:filtered`。更新代码并重新查词，避免继续连接旧页面的服务。
-- **显示今天到期，却没有立即出现？** 检查正在学习的牌组范围、父子牌组复习限额及卡片埋藏状态；必要时返回概览再进入学习。今天到期不等于强制插入当前队列首位。
-- **提示服务不可用或提队未确认？** 先确认 Anki 已打开、AnkiConnect 已启用及 API key 正确，再重新查词。空闲服务会自动退出；超时或断线不代表写入失败，核对卡片状态后再操作。
 
 ## 开发与打包
 
