@@ -25,7 +25,7 @@
     <label class="anki-unsuspend-label" hidden><input type="checkbox" class="anki-unsuspend"> 同时解除所选新卡的暂停</label>
     <button type="button" class="anki-promote" disabled>提队所选卡</button>
     <p class="anki-result" role="status" aria-live="polite"></p>
-    <small>插到父牌组当前学习队列首位；超出总额度时移出末尾未学新卡。今日额度已用完则额外加入。</small>
+    <small>将所选新卡设为今天到期的复习卡（绿卡），跳过新卡学习阶段；不受新卡限额影响，仍受复习限额影响。</small>
   </div>
   <noscript>交互需要启用 JavaScript；仍可按卡片 ID 使用命令行提队。</noscript>
   {% endif %}

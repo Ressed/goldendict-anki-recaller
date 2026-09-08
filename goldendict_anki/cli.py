@@ -73,8 +73,6 @@ class Client:
         if not isinstance(reply, dict) or 'error' not in reply or 'result' not in reply:
             raise BridgeError('AnkiConnect 响应格式不正确。')
         if reply['error']:
-            if action == 'gdPromoteNew' and 'unsupported action' in str(reply['error']).lower():
-                raise BridgeError('尚未启用提队扩展（GoldenDict Anki Recaller）。请安装 goldendict-anki-recaller.ankiaddon 并重启 Anki。')
             raise BridgeError(f"{action}: {reply['error']}")
         return reply['result']
 
@@ -204,13 +202,49 @@ def promote(client, config, word, cards, card_id=None, unsuspend=False):
     if len(eligible) > 1:
         raise BridgeError('匹配到多张可提队卡；请用 --card-id 指定一张。')
     card = eligible[0]
-    result = client.call('gdPromoteNew', cardId=card['cardId'], word=card.get('_matched_word', word), field=config['field'],
-                         deck=card['deckName'], caseSensitive=config['case_sensitive'], unsuspend=unsuspend,
-                         studyDeck=config['deck'])
-    return f"{result['message']}（card {card['cardId']}）"
+    return promote_card(client, config, card['cardId'], card.get('_matched_word', word),
+                        card['deckName'], unsuspend)
 
 
-def render(word, cards, message='', error=False, fmt='html', config=None):
+def promote_card(client, config, card_id, word, deck, unsuspend=False):
+    """Revalidate a stale lookup, then use only standard AnkiConnect actions."""
+    if type(card_id) is not int or type(unsuspend) is not bool or not isinstance(word, str) or not isinstance(deck, str):
+        raise BridgeError('无效的提队参数。')
+    scope = config['deck']
+    if scope and deck != scope and not deck.startswith(scope + '::'):
+        raise BridgeError('卡片不属于配置的牌组。')
+    def checked_card():
+        current = client.call('cardsInfo', cards=[card_id])
+        if not current or not current[0] or current[0].get('cardId') != card_id:
+            raise BridgeError('卡片已不存在，请重新查词。')
+        card = current[0]
+        if card['deckName'] != deck:
+            raise BridgeError('牌组已变化，请重新查词。')
+        field = card.get('fields', {}).get(config['field'])
+        if field is None or normalize(field['value'], config['case_sensitive'], markup=True) != normalize(word, config['case_sensitive']):
+            raise BridgeError('词头已变化，请重新查词。')
+        if card['type'] != 0 or card['queue'] not in (0, -1) or card.get('odid', 0):
+            raise BridgeError('仅可处理普通牌组中的未学新卡；卡片状态可能已变化。')
+        # cardsInfo does not expose odid on all AnkiConnect versions.
+        if client.call('findCards', query=f'cid:{card_id} deck:filtered'):
+            raise BridgeError('筛选牌组中的卡片不可提队。')
+        return card
+
+    card = checked_card()
+    if card['queue'] == -1:
+        if not unsuspend:
+            raise BridgeError('暂停卡需明确勾选解除暂停。')
+        # Some AnkiConnect versions perform the change but return null.
+        client.call('unsuspend', cards=[card_id])
+        card = checked_card()
+        if card['queue'] != 0:
+            raise BridgeError('卡片仍处于暂停状态，未设置到期日，请重新查词后核对。')
+    if client.call('setDueDate', cards=[card_id], days='0') is not True:
+        raise BridgeError('设置到期日未确认，请重新查词后核对。')
+    return f'已设为今天到期的复习卡（绿卡）；仍受复习限额影响（card {card_id}）'
+
+
+def render(word, cards, message='', error=False, fmt='html', config=None, bridge=None):
     config = config or DEFAULTS
     if fmt == 'json':
         rendered_cards = []
@@ -249,8 +283,7 @@ def render(word, cards, message='', error=False, fmt='html', config=None):
         views.append(dict(card, **card_summary(card, config), state=state(card),
                           template=str(card.get('ord', 0) + 1),
                           headword=card.get('_matched_word', word)))
-    interaction = dict(url=config['url'],
-        key=os.environ.get('ANKICONNECT_API_KEY') or config.get('api_key'),
+    interaction = dict(bridge=bridge,
         timeout=config['timeout'], word=matched_word, field=config['field'],
         caseSensitive=config['case_sensitive'],
         studyDeck=config['deck'],
@@ -303,7 +336,11 @@ def main(argv=None):
                 refreshed = {c['cardId']: c for c in client.call('cardsInfo', cards=[c['cardId'] for c in cards]) if c}
                 cards = [refreshed.get(c['cardId'], c) | {'_fields': c.get('_fields', {}),
                          '_matched_word': c.get('_matched_word', word)} for c in cards]
-        print(render(word, cards, message, fmt=args.format, config=config))
+        bridge = None
+        if args.format == 'html' and any(c['type'] == 0 and c['queue'] in (0, -1) for c in cards):
+            from .bridge import ensure_bridge
+            bridge = ensure_bridge(config)
+        print(render(word, cards, message, fmt=args.format, config=config, bridge=bridge))
         return 0
     except (BridgeError, OSError, ValueError, KeyError, TypeError) as exc:
         print(render(word, cards, '错误：' + str(exc), error=True, fmt=args.format, config=config))

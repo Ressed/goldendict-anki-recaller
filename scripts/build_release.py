@@ -9,13 +9,12 @@ DIST = ROOT / 'dist'
 def build():
     DIST.mkdir(exist_ok=True)
     addon = DIST / 'goldendict-anki-recaller.ankiaddon'
-    with zipfile.ZipFile(addon, 'w', zipfile.ZIP_DEFLATED) as archive:
-        for name in ('__init__.py', 'matching.py', 'priority_queue.py', 'manifest.json'):
-            archive.write(ROOT / 'addon' / name, name)
+    # Do not leave an obsolete scheduler plug-in alongside the current release.
+    addon.unlink(missing_ok=True)
     paths = [ROOT / name for name in ('anki_recall.py', 'config.example.json',
              'pyproject.toml', 'uv.lock', 'README.md', 'CONTRIBUTING.md',
              '.gitignore')]
-    for directory in ('goldendict_anki', 'addon', 'tests', 'scripts', 'docs'):
+    for directory in ('goldendict_anki', 'tests', 'scripts', 'docs'):
         paths.extend(path for path in (ROOT / directory).rglob('*') if path.is_file()
                      and '__pycache__' not in path.parts and 'user_files' not in path.parts
                      and path.suffix in ('.py', '.js', '.css', '.html', '.md', '.json', '.png'))
@@ -24,8 +23,6 @@ def build():
     with zipfile.ZipFile(source, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(paths):
             archive.write(path, 'goldendict-anki-recaller/' + path.relative_to(ROOT).as_posix())
-        archive.write(addon, 'goldendict-anki-recaller/dist/' + addon.name)
-    print(addon)
     print(source)
 
 

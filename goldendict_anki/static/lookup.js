@@ -43,27 +43,21 @@
     radios[0].dispatchEvent(new Event('change'));
   }
 
-  async function call(action, params) {
-    const body = {action: action, version: 6, params: params || {}};
-    // GoldenDict rewrites the HTTP Origin of POSTs. The add-on repairs CORS
-    // only for these marked actions when gdlookup://localhost is whitelisted.
-    if (window.location.protocol === 'gdlookup:' && window.location.hostname === 'localhost') {
-      body.gdBridgeOrigin = 'gdlookup://localhost';
-    }
-    if (cfg.key) body.key = cfg.key;
+  async function promote(card, unsuspend) {
+    if (!cfg.bridge) throw new Error('本地按钮服务不可用，请重新查词');
     const controller = new AbortController();
-    // First-time permission is a human dialog; allow time to switch to Anki.
-    const timeout = action === 'requestPermission' ? Math.max(120, cfg.timeout) : cfg.timeout;
-    const timer = setTimeout(() => controller.abort(), timeout * 1000);
+    const timer = setTimeout(() => controller.abort(), (cfg.timeout * 6 + 5) * 1000);
     try {
-      const response = await fetch(cfg.url, {method:'POST',
+      const response = await fetch(cfg.bridge.url + '/promote', {method:'POST',
         headers:{'Content-Type':'text/plain;charset=UTF-8'},
-        body:JSON.stringify(body), signal:controller.signal});
+        body:JSON.stringify({token:cfg.bridge.token, params:{card_id:card.cardId,
+          word:card.word, deck:card.deckName, unsuspend:unsuspend}}), signal:controller.signal});
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const data = await response.json();
       if (!data || !Object.prototype.hasOwnProperty.call(data, 'result') ||
           !Object.prototype.hasOwnProperty.call(data, 'error')) throw new Error('响应格式错误');
       if (data.error) throw new Error(data.error);
+      if (!data.result || typeof data.result.message !== 'string') throw new Error('响应格式错误');
       return data.result;
     } finally { clearTimeout(timer); }
   }
@@ -74,31 +68,17 @@
     const unsuspend = card.queue === -1 && consent.checked;
     busy = true;
     update();
-    let submitted = false;
-    output.textContent = '正在连接 Anki；如出现访问授权，请在 Anki 窗口处理。';
+    output.textContent = '正在设为今天到期的复习卡…';
     try {
-      const permission = await call('requestPermission');
-      if (!permission || permission.permission !== 'granted') throw new Error('未授权 GoldenDict 访问 Anki');
-      if (permission.requireApikey && !cfg.key) throw new Error('请在 config.json 配置 AnkiConnect API key');
-      submitted = true;
-      const result = await call('gdPromoteNew', {cardId:card.cardId, word:card.word,
-        field:cfg.field, deck:card.deckName, caseSensitive:cfg.caseSensitive, unsuspend:unsuspend,
-        studyDeck:cfg.studyDeck});
-      if (!result || typeof result.message !== 'string' || result.mode !== 'queue-first') {
-        throw new Error('插队插件版本不匹配，请安装新版插件并重启 Anki');
-      }
+      const result = await promote(card, unsuspend);
       completed.add(card.cardId);
-      root.querySelector('.anki-card[data-card-id="' + card.cardId + '"] .anki-state').textContent = '新卡 · 已加入当前学习队列首位';
+      root.querySelector('.anki-card[data-card-id="' + card.cardId + '"] .anki-state').textContent = '复习 · 今天到期（绿卡）';
       output.textContent = 'card ' + card.cardId + '：' + result.message;
     } catch (error) {
       // A failed response does not prove a write failed: never enable a blind retry.
-      uncertain = submitted;
-      output.textContent = submitted ?
-        '提队未确认：' + error.message + '。可能已生效或部分生效，请重新查词并在 Anki 核对后再操作。' :
-        '连接或授权失败（requestPermission，尚未发送提队请求）：' + error.message +
-        '。页面来源：' + window.location.origin + '；页面协议：' + window.location.protocol +
-        '；目标：' + cfg.url +
-        '。请在 GoldenDict 按 F12 查看 Console 中的网络/CORS 错误；仅凭此提示不能确定是否为来源授权问题。';
+      uncertain = true;
+      output.textContent = '提队未确认：' + error.message +
+        '。设置到期日或解除暂停可能已生效，请重新查词并在 Anki 核对后再操作；页面长时间未使用时，本地按钮服务可能已退出。';
     } finally {
       busy = false;
       update();

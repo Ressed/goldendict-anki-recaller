@@ -1,103 +1,51 @@
-# goldendict-anki-recaller：已有卡片提队规则
+# 提队行为与实现
 
-本项目从完整牌组中查找已有卡片并调整学习顺序，不创建笔记或卡片。Windows，Python 3.10+；队列插件已用本机 Anki 26.8.1 的真实调度器在独立测试集合中验证。
+提队现在完全使用 AnkiConnect 标准 API：选中的未学新卡通过 `setDueDate(cards=[id], days="0")` 转成今天到期的复习卡（绿卡）。不创建卡片，不移动牌组，不写入自定义队列计划，不接管 Anki 的取卡和作答。
 
-## 当前行为
+## 写入流程
 
-正常查词和选择义项只读取卡片。点击「提队所选卡」才改变当天的学习计划：
+1. 查词及义项选择只读，按钮点击或命令行 `--promote` 才开始操作。
+2. 使用 `cardsInfo` 重新读取卡片，核对 ID、牌组、词头和新卡状态；使用 `findCards(query="cid:<卡片ID> deck:filtered")` 检查筛选牌组状态。部分 AnkiConnect 版本的 `cardsInfo` 不返回 `odid`，因此仍需搜索确认。`is:filtered` 不是有效语法。
+3. 若新卡暂停，必须明确授权，然后调用 `unsuspend(cards=[id])`。部分 AnkiConnect 版本成功执行后返回 `null`，不能要求返回值必须为 `true`。
+4. 解除暂停后，再执行一次上述 `cardsInfo` 和 `findCards` 检查。只有卡片仍为匹配词头、匹配牌组的普通新卡，并且 `queue == 0`，才继续。卡片仍暂停或状态、词头、牌组发生变化时停止。
+5. 调用 `setDueDate(cards=[id], days="0")`。只有返回 `true` 才显示设置成功。
 
-1. 在 Anki 先选择配置中的父牌组 `English`。可处于该牌组概览或学习界面。
-2. 第一次插队时，保存 Anki 已按各子牌组限额和随机规则选出的待学新卡顺序。
-3. 所选新卡插到队列最前面，并立即在 Anki 学习界面显示。当前尚未作答的卡不会被当作已学。
-4. 如果「父牌组今天已学新卡数＋插入后的待学新卡数」超出父牌组新卡限额，移出末尾未学新卡，直到符合限额。仅移出当天计划，不删除、不暂停、不埋藏卡片。
-5. 若父牌组今天已学数已经达到或超过限额，额外加入所选卡，不挤掉现有待学卡。这里“达到”也视为额度用完。
-6. 已在计划中的卡仅移到最前面，不重复增加名额。连续插队时，最新点击的卡最先显示。
+不处理已学习、复习、埋藏和筛选牌组中的卡片，防止旧查询页覆盖已经变化的复习安排。词头按该卡实际匹配到的原词或词形还原结果验证，去 HTML、规范化空白及 Unicode，并遵循大小写配置。
 
-所选卡可来自限额为 0 的子牌组。这是用户显式指定的例外；其他普通新卡仍来自原来选出的学习计划。各牌组的原始限额、随机收集/排序设置、卡片所属牌组和新卡位置不被改写。
+解除暂停和设置到期日是两个独立 API 操作，不是事务；后一步失败时，前一步可能已经完成。请求超时或结果不确定时不自动重试，应重新查词并在 Anki 核对。
 
-这里的限额指父牌组的**每日新卡限额**，并非新卡、复习卡和学习步骤次数的总和。踢出的仅是未学新卡，不会丢弃到期复习卡或学习步骤。插队卡首次作答后，后续学习步骤重新由 Anki 原生调度器安排。
+未暂停的新卡依次调用 `cardsInfo → findCards → setDueDate`；暂停的新卡依次调用 `cardsInfo → findCards → unsuspend → cardsInfo → findCards → setDueDate`。配置中的 `timeout` 作用于单次 AnkiConnect 请求，网页等待整个流程的上限为 `6 × timeout + 5` 秒。
 
-## 更新与使用
+“提队未确认”是通用提示，不表示每次错误都已经产生写入。例如最初的词头或筛选牌组检查失败时，尚未执行解除暂停或设置到期日。若已解除暂停但设置到期日失败，刷新后仍是新卡是正常的部分成功状态；核对后可以直接再次提队，无需重新勾选解除暂停。
 
-- 当前版本新增 `addon/priority_queue.py`，必须在 Anki「工具 → 插件 → 从文件安装」重新安装 `dist/goldendict-anki-recaller.ankiaddon`，然后重启 Anki。
-- 保留现有 GoldenDict Program 命令，重新查词即可读取新的 HTML/JS。
-- 只要查询有结果，默认选中返回的第一张卡；需要其他义项时再点击对应单选框。随后点「提队所选卡」。暂停的新卡需明确勾选解除暂停。学习中、复习、埋藏和筛选牌组中的卡不支持本操作。
-- 成功后会显示当前队列首位及移出的卡片数量。按钮防止重复提交；写入结果不确定时需重新查词、核对 Anki 后再操作。
-- 界面会检查插件返回的行为版本，避免旧版仅重排位置却被显示为插队成功。
+## 调度边界
 
-## 当天计划与限制
+新卡转为复习卡会跳过首次新卡学习步骤，后续按 Anki 原生复习规则作答。可以绕过新卡额度，包括零新卡额度子牌组，但到期复习仍受所学牌组和子牌组的复习限额、埋藏规则等影响。设置今天到期不承诺今天一定展示，也不承诺出现在首位。
 
-当天计划保存在插件的 `user_files` 目录，按 Anki 集合路径隔离；重启后仍可继续，跨 Anki 学习日自动失效。它仅影响当前电脑且插件启用时的学习队列，不通过 Anki 同步到手机。
+混排规则、普通新卡选择、学习步骤、统计、撤销和同步全部交由 Anki。修改到期日可能重建队列，所以不冻结原有逐张顺序。页面不模拟作答、不强制翻页，也不主动切换牌组。必要时返回概览再进入学习，刷新当前展示和数量。
 
-计划中的卡若被删除、移出父牌组、暂停、埋藏或已开始学习，将不再作为待学新卡出现。首次作答后可以使用 Anki 原生撤销恢复该卡；继续插队或更改计划后，旧计划不提供独立撤销历史。
+## 本地按钮服务
 
-父牌组总限额在当天修改后，会在下一次取队列时调整容量；增加容量时从原生队列补充。首次插队后，普通新卡的选择顺序保持稳定；若只修改子牌组的限额，已有计划不会重新随机抽签，翌日按新配置收集。
+`goldendict_anki/bridge.py` 只解决 GoldenDict 改写 Origin 导致的浏览器通信问题。HTML 查询有可操作新卡时按需启动，随机绑定 `127.0.0.1` 端口；同一配置和代码版本复用进程，空闲 30 分钟退出。服务信息位于系统临时目录 `goldendict-anki-bridge`，不进入发布包。
 
-数量以**学习界面**显示的待学数为准。牌组列表使用 Anki 原生牌组统计，不保证展示临时插队计划的数量。若 Anki 正在提交作答，插件会要求稍后重试。
+按钮发送随机令牌及所选卡信息；服务只提供健康检查和提队入口，重新验证卡片后使用标准 AnkiConnect API。它不允许网页指定任意 AnkiConnect action，不接管调度器。AnkiConnect API key 不放入 HTML，也不需要浏览器访问授权或 CORS 配置修改。
 
-## HTML 与字段配置
+页面过期或本地服务退出时，重新查词会重新建立连接。服务复用标识包含项目路径、有效配置以及 `bridge.py`、`cli.py` 的内容摘要；这些代码或配置变化后，新查询会连接新服务，已打开的旧页面不会自动切换。无需为普通代码更新重启 Anki。不要分享带操作令牌的 HTML。纯命令行提队不依赖这个服务。
 
-- `goldendict_anki/cli.py`：精确匹配、卡片摘要、命令行接口。
-- `goldendict_anki/html_view.py` / `goldendict_anki/templates/lookup.html`：Jinja2 文件模板，自动转义文本，安全序列化脚本配置。
-- `goldendict_anki/static/lookup.css` / `goldendict_anki/static/lookup.js`：局部样式、选卡和请求处理。
-- `addon/__init__.py`：执行前检查、AnkiConnect action 及 CORS 兼容。
-- `addon/priority_queue.py`：当天新卡计划、原生队列读取适配、原生作答及撤销合并。
+## 从旧队列插件迁移
 
-当前 `config.json` 的 `sense_fields` 为 `DefinitionTR`、`Definition`，`label_fields` 为 `PoS`、`Label`。每张卡显示独立义项，也可展开卡面文本摘要；不执行原始卡面脚本。
+删除或禁用 Anki 中的 GoldenDict Anki Recaller，然后重启 Anki；保留 AnkiConnect。旧版进程中的调度器补丁不会因文件移除立即消失。
 
-## 英语词形还原查询
+旧 `user_files` 学习计划不再使用。旧计划中仅被额外加入、但还没有真正学习的新卡不会自动转成绿卡，需要按新规则重新提队。已经发生的正常学习记录保留。
 
-默认启用 `"lemmatize": true`。程序使用随项目离线提供的 Simplemma 2.0.0，将单个英语词的复数、时态、比较级等还原为词典原形，例如 `tournaments → tournament`、`children → child`、`running/ran → run`、`went → go`、`studies/studied → study`、`better → good`。
+## 文件与验证
 
-一次 Anki 搜索会同时检查用户输入词头和还原后的原形：
+- `goldendict_anki/cli.py`：查询、词形还原结果匹配、执行前检查及标准 API 调用。
+- `goldendict_anki/bridge.py`：按需运行的本地按钮通信服务。
+- `goldendict_anki/templates` 与 `static`：义项选卡、暂停授权、绿卡反馈及重复提交保护。
+- `tests/test_bridge.py`：查询与纯 AnkiConnect 写入流程。
+- `tests/test_transport.py`：本地 HTTP、Origin 兼容、令牌、输入限制与错误处理。
+- `tests/test_native_due_date.py`：在独立临时集合中使用真实 Anki 搜索和调度器，验证普通／筛选牌组检查、暂停新卡解除暂停后转为今天的绿卡，以及其他卡片不被改动。未配置 Anki 运行时时跳过。
+- `tests/test_ui.js`：多词条隔离、默认选择、按钮状态和结果不确定时禁止重试。
 
-- 只有原形存在时，标题显示 `输入 → 原形`。
-- 两者都存在时，两组卡都显示，并在每张卡上标注实际词头，避免把 `saw` 之类的名词词条静默覆盖成动词 `see`。
-- 选择卡片后，提队插件按该卡的实际词头二次验证，不会拿变形词误验原形卡。
-- 多词短语、数字、标点或非英语输入不做词形变换，继续精确查询。
-
-Simplemma 不使用上下文和词性，个别歧义词可能给出不符合当前语境的原形；保留输入词头结果就是为用户提供人工选择。若希望恢复只查原词，将 `config.json` 的 `lemmatize` 改为 `false`。该库是纯 Python、无运行时网络请求，也不需要下载语言模型。
-
-复制项目时保留 `goldendict_anki`、`pyproject.toml` 和 `uv.lock`。首次安装或依赖变化后，在项目目录运行：
-
-```powershell
-uv sync --frozen
-```
-
-也可用 `--stdin` 让 GoldenDict 通过标准输入传词。不要把 `--promote` 写入自动查询命令。
-
-命令行显式操作也使用当前学习队列插队：
-
-```powershell
-uv run --frozen python anki_recall.py --format text -- tournament
-uv run --frozen python anki_recall.py --promote --card-id 1234567890000 --format text -- tournament
-```
-
-多张可用新卡必须指定卡片 ID。默认精确匹配词头（去 HTML、合并空白、Unicode NFC、忽略大小写）；`--full-scan` 可完整扫描目标范围，`--inspect` 可检查牌组和字段。
-
-## AnkiConnect 来源设置
-
-本机 AnkiConnect 保持监听 `127.0.0.1:8765`，来源设置：
-
-```json
-"webCorsOriginList": ["http://localhost", "gdlookup://localhost"]
-```
-
-GoldenDict 的网络拦截器会改写 POST 的 Origin。插件仅对标记为本桥接请求、指定 action、本机地址和端口匹配、且 `gdlookup://localhost` 已明确加入白名单的请求纠正 CORS 响应。API key 和卡片状态验证仍生效。不要用 `no-cors` 或 `*` 代替。
-
-如仍失败，在 GoldenDict F12 → Console 查看具体错误。`api_key` 会进入本地交互 HTML，不要分享含密钥的生成页面。
-
-## 验证
-
-```powershell
-uv run --frozen python -m unittest tests.test_bridge -v
-uv run --frozen node tests/test_ui.js
-```
-
-交互测试依赖 `.test-tools` 的 jsdom，可用 `npm ci --prefix .test-tools` 恢复。HTTP 全部模拟。
-
-真实调度器集成测试环境见 [参与开发](../CONTRIBUTING.md)。
-
-仅在项目内创建独立临时集合，不操作用户数据。覆盖零额度子牌组插队、末尾替换、额度用尽追加、重复插队、随机顺序保留、正常作答/复习记录、Again/撤销、计划重载、跨天、父牌组限额修改及插件 action 刷新调用。真实 GoldenDict → Anki 界面链路需安装新版插件后确认。
-
-Anki 的底层队列不提供公开的任意插队接口。本插件适配 V3 Python 取卡/作答入口，并在计划启用时用原生卡片更新使旧队列失效，再执行原生作答；这两个步骤合并为一次可撤销操作。Anki 大版本升级或其他修改调度器的插件可能需要重新适配。
+单元测试和 HTTP 测试模拟 AnkiConnect；原生测试通过适配客户端调用实际 Anki 搜索和调度方法，不等同于完整 GoldenDict → AnkiConnect 界面链路测试。所有测试都不修改真实学习集合，具体运行方法见 [参与开发](../CONTRIBUTING.md)。打包脚本只生成源码发布包，并清除旧 `.ankiaddon` 构建产物。

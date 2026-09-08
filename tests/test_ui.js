@@ -6,7 +6,8 @@ const html = execFileSync('python', ['-X', 'utf8', '-c', `
 import anki_recall as a
 from tests.test_bridge import card
 cs=[card(1),card(2)|{'_matched_word':'lemma'},card(3,queue=-1),card(4,kind=2,queue=2),card(5,queue=-2)]
-print(a.render('first',cs)+a.render('second',[card(6)]))
+bridge={'url':'http://127.0.0.1:9999','token':'page-token'}
+print(a.render('first',cs,bridge=bridge)+a.render('second',[card(6)],bridge=bridge))
 `], {encoding:'utf8', cwd:require('node:path').resolve(__dirname, '..')});
 
 function page(mode = 'success') {
@@ -14,9 +15,9 @@ function page(mode = 'success') {
   const dom = new JSDOM(html, {url:'gdlookup://localhost/', runScripts:'dangerously', beforeParse(w) {
     w.fetch = async (url, options) => {
       const request = JSON.parse(options.body); requests.push(request);
-      if (request.action === 'gdPromoteNew' && mode === 'fail') throw Error('lost response');
-      const result = request.action === 'requestPermission' ?
-        {permission:mode === 'denied' ? 'denied' : 'granted'} : {message:'已提队', mode:'queue-first'};
+      assert.equal(url, 'http://127.0.0.1:9999/promote');
+      if (mode === 'fail') throw Error('lost response');
+      const result = {message:'已设为今天到期的复习卡（绿卡）'};
       return {ok:true, json:async () => ({result, error:null})};
     };
   }});
@@ -40,16 +41,15 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(p.requests.length, 0, 'selection performs no HTTP');
   button(first).click(); button(first).click();
   await settle();
-  assert.equal(p.requests.filter(r => r.action === 'gdPromoteNew').length, 1);
-  assert.equal(p.requests[0].gdBridgeOrigin, 'gdlookup://localhost');
-  assert.equal(p.requests[1].gdBridgeOrigin, 'gdlookup://localhost');
-  assert.deepEqual(p.requests[1].params, {cardId:2, word:'lemma', field:'Word',
-    deck:'English', caseSensitive:false, unsuspend:false, studyDeck:null});
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.requests[0].token, 'page-token');
+  assert.deepEqual(p.requests[0].params, {card_id:2, word:'lemma', deck:'English', unsuspend:false});
   assert.equal(button(first).disabled, true, 'success cannot be repeated');
-  assert.match(first.querySelector('.anki-result').textContent, /已提队/);
+  assert.match(first.querySelector('.anki-result').textContent, /绿卡/);
+  assert.equal(first.querySelector('[data-card-id="2"] .anki-state').textContent, '复习 · 今天到期（绿卡）');
   select(second, 6); button(second).click(); await settle();
-  assert.equal(p.requests[3].params.word, 'second');
-  assert.equal(p.requests[3].params.cardId, 6);
+  assert.equal(p.requests[1].params.word, 'second');
+  assert.equal(p.requests[1].params.card_id, 6);
   select(first, 4); assert.equal(button(first).disabled, true);
   select(first, 5); assert.equal(button(first).disabled, true);
   select(first, 3); assert.equal(button(first).disabled, true);
@@ -67,13 +67,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   assert.match(first.querySelector('.anki-result').textContent, /可能已生效/);
   assert.equal(first.querySelector('input[type=radio]').disabled, true);
   button(first).click(); await settle();
-  assert.equal(p.requests.length, 2, 'uncertain write never retried');
+  assert.equal(p.requests.length, 1, 'uncertain write never retried');
   p.dom.window.close();
 
-  p = page('denied'); first = p.roots[0];
-  select(first, 1); button(first).click(); await settle();
-  assert.equal(p.requests.length, 1, 'denial prevents write');
-  assert.equal(button(first).disabled, false);
-  p.dom.window.close();
-  console.log('UI checks passed: selection, isolation, double-click, states, consent, success, uncertainty, denial.');
+  console.log('UI checks passed: selection, isolation, double-click, states, consent, green-card success, uncertainty.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

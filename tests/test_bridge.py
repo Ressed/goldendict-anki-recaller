@@ -1,10 +1,6 @@
-import importlib.util
 import json
-from pathlib import Path
-import sys
-import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, call
 import anki_recall as app
 
 
@@ -49,11 +45,74 @@ class BridgeTests(unittest.TestCase):
         self.assertIn('nid:100', api.call.call_args_list[2].kwargs['query'])
         self.assertIn('nid:101', api.call.call_args_list[4].kwargs['query'])
 
+    def promotion_api(self, c=None, word='x'):
+        api = Mock()
+        current = (c or card()) | {'fields': {'Word': {'value': word}}}
+        def respond(action, **params):
+            if action == 'cardsInfo':
+                return [current]
+            if action == 'findCards':
+                return []
+            if action == 'unsuspend':
+                current['queue'] = 0
+                return None
+            return True
+        api.call.side_effect = respond
+        return api
+
     def test_promote_validates_actual_lemma(self):
-        api = Mock(); api.call.return_value = {'message': 'ok'}
+        api = self.promotion_api(word='<b>run</b>')
         c = card() | {'_matched_word': 'run'}
         app.promote(api, app.DEFAULTS, 'running', [c])
-        self.assertEqual(api.call.call_args.kwargs['word'], 'run')
+        self.assertEqual(api.call.call_args, call('setDueDate', cards=[1], days='0'))
+        self.assertEqual([c.args[0] for c in api.call.call_args_list], ['cardsInfo', 'findCards', 'setDueDate'])
+
+    def test_stale_or_filtered_cards_rejected(self):
+        for current in (card(kind=2, queue=2), card(queue=-2), card(deck='Other')):
+            api = self.promotion_api(current)
+            with self.assertRaises(app.BridgeError):
+                app.promote(api, app.DEFAULTS, 'x', [card()])
+            self.assertNotIn('setDueDate', [c.args[0] for c in api.call.call_args_list])
+        api = self.promotion_api(word='changed')
+        with self.assertRaises(app.BridgeError):
+            app.promote(api, app.DEFAULTS, 'x', [card()])
+        api = Mock(); api.call.side_effect = [[card() | {'fields': {'Word': {'value': 'x'}}}], [1]]
+        with self.assertRaises(app.BridgeError):
+            app.promote(api, app.DEFAULTS, 'x', [card()])
+        self.assertEqual(api.call.call_count, 2)
+
+    def test_unsuspend_failure_does_not_set_due_date(self):
+        api = Mock()
+        current = card(queue=-1) | {'fields': {'Word': {'value': 'x'}}}
+        api.call.side_effect = [[current], [], None, [current], []]
+        with self.assertRaises(app.BridgeError):
+            app.promote(api, app.DEFAULTS, 'x', [card(queue=-1)], unsuspend=True)
+        self.assertNotIn('setDueDate', [c.args[0] for c in api.call.call_args_list])
+
+    def test_unsuspend_return_values_use_actual_state(self):
+        for value in (None, True, False):
+            with self.subTest(value=value):
+                current = card(queue=-1) | {'fields': {'Word': {'value': 'x'}}}
+                api = Mock()
+                api.call.side_effect = [[current], [], value, [current | {'queue': 0}], [], True]
+                app.promote(api, app.DEFAULTS, 'x', [card(queue=-1)], unsuspend=True)
+                self.assertEqual(api.call.call_args, call('setDueDate', cards=[1], days='0'))
+
+    def test_state_change_during_unsuspend_stops_promotion(self):
+        current = card(queue=-1) | {'fields': {'Word': {'value': 'x'}}}
+        for changed in (current | {'queue': 2, 'type': 2}, current | {'deckName': 'Other'},
+                        current | {'fields': {'Word': {'value': 'changed'}}}):
+            api = Mock(); api.call.side_effect = [[current], [], None, [changed]]
+            with self.assertRaises(app.BridgeError):
+                app.promote(api, app.DEFAULTS, 'x', [card(queue=-1)], unsuspend=True)
+            self.assertNotIn('setDueDate', [c.args[0] for c in api.call.call_args_list])
+
+    def test_set_due_failure_is_not_retried(self):
+        api = Mock()
+        api.call.side_effect = [[card() | {'fields': {'Word': {'value': 'x'}}}], [], False]
+        with self.assertRaises(app.BridgeError):
+            app.promote(api, app.DEFAULTS, 'x', [card()])
+        self.assertEqual(api.call.call_count, 3)
 
     def test_normalization(self):
         self.assertEqual(app.normalize('<b>Tour</b>nament&nbsp;', markup=True), 'tournament')
@@ -92,19 +151,18 @@ class BridgeTests(unittest.TestCase):
         api = Mock()
         app.promote(api, app.DEFAULTS, 'x', [card(queue=-1)])
         api.call.assert_not_called()
-        api.call.return_value = {'message': 'ok'}
+        api = self.promotion_api(card(queue=-1))
         app.promote(api, app.DEFAULTS, 'x', [card(queue=-1)], unsuspend=True)
-        self.assertEqual(api.call.call_args.args[0], 'gdPromoteNew')
-        self.assertTrue(api.call.call_args.kwargs['unsuspend'])
+        self.assertEqual([c.args[0] for c in api.call.call_args_list], ['cardsInfo', 'findCards', 'unsuspend', 'cardsInfo', 'findCards', 'setDueDate'])
 
     def test_duplicate_requires_selection(self):
         api = Mock()
         with self.assertRaises(app.BridgeError):
             app.promote(api, app.DEFAULTS, 'x', [card(), card(2)])
         api.call.assert_not_called()
-        api.call.return_value = {'message': 'ok'}
+        api = self.promotion_api(card(2))
         app.promote(api, app.DEFAULTS, 'x', [card(), card(2)], card_id=2)
-        self.assertEqual(api.call.call_args.kwargs['cardId'], 2)
+        self.assertEqual(api.call.call_args, call('setDueDate', cards=[2], days='0'))
 
     def test_wrong_card_id(self):
         with self.assertRaises(app.BridgeError):
@@ -168,62 +226,11 @@ class BridgeTests(unittest.TestCase):
         request = client.opener.open.call_args.args[0]
         self.assertEqual(json.loads(request.data)['version'], 6)
         client.opener.open.return_value = io.BytesIO(b'{"result":null,"error":"unsupported action"}')
-        with self.assertRaisesRegex(app.BridgeError, '尚未启用提队扩展'):
-            client.call('gdPromoteNew')
+        with self.assertRaisesRegex(app.BridgeError, 'unsupported action'):
+            client.call('setDueDate', cards=[1], days='0')
         client.opener.open.side_effect = TimeoutError()
         with self.assertRaises(app.BridgeError):
             client.call('version')
-
-
-class AddonTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        aqt = types.ModuleType('aqt')
-        aqt.gui_hooks = types.SimpleNamespace(profile_did_open=[])
-        with patch.dict(sys.modules, {'aqt': aqt}):
-            spec = importlib.util.spec_from_file_location('test_addon', Path(__file__).resolve().parents[1] / 'addon/__init__.py', submodule_search_locations=[str(Path(__file__).resolve().parents[1] / 'addon')])
-            cls.module = importlib.util.module_from_spec(spec)
-            sys.modules['test_addon'] = cls.module
-            spec.loader.exec_module(cls.module)
-
-    def test_register(self):
-        module = types.ModuleType('fake_anki_connect')
-        class AnkiConnect:
-            handler = cardsInfo = collection = lambda self: None
-        module.AnkiConnect = AnkiConnect
-        queue_module = types.ModuleType('test_addon.priority_queue')
-        queue_module.install = Mock()
-        with patch.dict(sys.modules, {'fake_anki_connect': module, 'test_addon.priority_queue': queue_module}):
-            self.module.register()
-        self.assertTrue(AnkiConnect.gdPromoteNew.api)
-
-    def test_gd_cors_compat_is_scoped(self):
-        class Server:
-            def allowOrigin(self, req):
-                return False, 'original'
-        settings = {'webBindPort': 8765, 'webCorsOriginList': ['gdlookup://localhost']}
-        web = types.SimpleNamespace(WebServer=Server, util=types.SimpleNamespace(setting=settings.get))
-        self.module.install_cors_compat(web)
-        self.module.install_cors_compat(web)
-        body = {'action': 'requestPermission', 'gdBridgeOrigin': 'gdlookup://localhost'}
-        req = types.SimpleNamespace(method=b'POST', headers={b'origin': b'http://127.0.0.1:8765'}, body=json.dumps(body).encode())
-        self.assertEqual(Server().allowOrigin(req), (True, 'gdlookup://localhost'))
-        for action in ('deleteDecks', 'version'):
-            req.body = json.dumps(body | {'action': action}).encode()
-            self.assertEqual(Server().allowOrigin(req), (False, 'original'))
-        req.body = json.dumps(body | {'action': 'gdPromoteNew'}).encode()
-        self.assertEqual(Server().allowOrigin(req), (True, 'gdlookup://localhost'))
-        settings['webCorsOriginList'] = []
-        self.assertEqual(Server().allowOrigin(req), (False, 'original'))
-        settings['webCorsOriginList'] = ['gdlookup://localhost']
-        req.headers[b'origin'] = b'https://example.com'
-        self.assertEqual(Server().allowOrigin(req), (False, 'original'))
-        req.body = b'not json'
-        self.assertEqual(Server().allowOrigin(req), (False, 'original'))
-
-    def test_matching_code_stays_consistent(self):
-        for value in ['<b>Tour</b>nament', 'e\u0301', 'Word', ' a&nbsp;b ']:
-            self.assertEqual(self.module.normalize(value, markup=True), app.normalize(value, markup=True))
 
 
 if __name__ == '__main__':
