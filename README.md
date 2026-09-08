@@ -51,7 +51,7 @@ Copy-Item config.example.json config.json
 
 查到卡片后，默认选中第一张；按义项选择，点击「提队所选卡」，成功后显示“今天到期（绿卡）”。页面等待过久或提交结果不确定时，重新查词后再核对，不自动重试写操作。
 
-GoldenDict 会改写 HTTP Origin，因此按钮通过自动启动的**本地 Python 转发服务**访问 AnkiConnect。该服务只监听随机的 `127.0.0.1` 端口，同一项目路径、配置和转发代码版本复用进程，空闲 30 分钟退出；无需手动启动或新增 Anki 插件。它不提供任意 Anki API 转发，只接受带随机令牌的提队请求并重新检查卡片。
+GoldenDict 会改写 HTTP Origin，因此按钮通过自动启动的**本地 Python 服务**访问 AnkiConnect。HTML 查询也由该服务处理，复用词形库和模板，避免每次查词重复初始化；卡片状态每次从 Anki 读取。该服务只监听随机的 `127.0.0.1` 端口，同一项目路径、配置和代码版本复用进程，空闲 30 分钟退出；无需手动启动或新增 Anki 插件。它只提供带随机令牌的查询、提队和健康检查，不提供任意 Anki API 转发。
 
 无需为本项目修改 AnkiConnect 的 CORS 白名单。之前添加的来源可以保留；不需要 `*`。API key 留在 Python 端，不进入词典 HTML。生成页面中的本地操作令牌也不要分享。
 
@@ -77,6 +77,16 @@ uv run --frozen python anki_recall.py --promote --card-id 1234567890000 --format
 
 
 ## 开发与打包
+
+查询从 `notesInfo` 获取卡片 ID，再按最多 250 张批量调用 `cardsInfo`，避免每条匹配笔记额外发送两次请求。正常查询最多 250 条候选笔记、250 张匹配卡片时只需 3 次 AnkiConnect 请求。词头精确校验、牌组范围和词形还原规则保持不变。
+
+可用以下只读基准测量从启动 Python 到完整 HTML 输出的耗时（不含 GoldenDict 自身的排队与绘制）：
+
+```powershell
+uv run --frozen python scripts/benchmark_lookup.py --runs 5 running tournament apple
+```
+
+首次启动服务或空闲 30 分钟后的查询需要重新加载词形库，可能超过 1 秒；Anki 忙碌、匹配数量很大或 `--full-scan` 也会增加耗时。GoldenDict 应使用上文直接调用 `.venv\Scripts\python.exe` 的命令，避免每次查询额外启动依赖管理工具。
 
 见 [参与开发](CONTRIBUTING.md) 和 [行为说明](docs/behavior.md)。
 

@@ -58,6 +58,33 @@ class TransportTests(unittest.TestCase):
             self.assertIsNotNone(json.load(response)['error'])
         self.server.client.call.assert_not_called()
 
+    def test_lookup_reads_fresh_data_and_keeps_token_required(self):
+        c = {'cardId': 42, 'note': 1, 'type': 0, 'queue': 0, 'due': 1,
+             'deckName': 'English'}
+        self.server.client.call.side_effect = [[1],
+            [{'noteId': 1, 'cards': [42], 'fields': {'Word': {'value': 'two words'}}}],
+            [c], []]
+        params = dict(word='two words', full_scan=False)
+        with self.post('/lookup', params=params) as response:
+            first = json.load(response)
+        self.assertIsNone(first['error'])
+        self.assertIn('找到 1 张卡', first['result'])
+        with self.post('/lookup', params=params) as response:
+            self.assertIn('没有找到已有卡片', json.load(response)['result'])
+        self.assertEqual([c.args[0] for c in self.server.client.call.call_args_list],
+                         ['findNotes', 'notesInfo', 'cardsInfo', 'findNotes'])
+        with self.assertRaises(urllib.error.HTTPError):
+            self.post('/lookup', token='wrong', params=params)
+        self.assertEqual(self.server.client.call.call_count, 4)
+
+    def test_lookup_rejects_invalid_parameters(self):
+        for params in ({}, {'word': 'x', 'full_scan': 'false'},
+                       {'word': 'x', 'full_scan': False, 'action': 'deleteDecks'},
+                       {'word': 'x' * 501, 'full_scan': False}):
+            with self.post('/lookup', params=params) as response:
+                self.assertIsNotNone(json.load(response)['error'])
+        self.server.client.call.assert_not_called()
+
     def test_api_failure_reported_without_retry(self):
         from goldendict_anki.cli import BridgeError
         self.server.client.call.side_effect = BridgeError('connection lost')

@@ -39,11 +39,13 @@ Remove-Item Env:ANKI_APP_PACKAGES
 - `unsuspend` 在部分 AnkiConnect 版本中成功后返回 `null`。模拟测试应覆盖返回 `null`、`true`、`false` 的情况，并以重新读取的卡片状态确认是否可以继续；不要只模拟理想的布尔成功值。
 - 解除暂停后重新核对词头、牌组、类型和筛选牌组状态，确认 `queue == 0` 才调用 `setDueDate(cards=[id], days="0")`。
 - 覆盖卡片未解除暂停、检查期间卡片状态变化、API 报错和部分成功；这些调用不是事务，不能自动重试写操作。
-- 修改网页交互时，验证多词条隔离、默认选中、状态提示及重复提交保护。本地服务只提供受令牌保护的健康检查和提队入口，不能扩展为网页可任意调用的 Anki API 代理。
+- 修改网页交互时，验证多词条隔离、默认选中、状态提示及重复提交保护。本地服务只提供受令牌保护的健康检查、词头查询和提队入口，不能扩展为网页可任意调用的 Anki API 代理。
 
 修改 `cli.py`、`bridge.py` 或配置后，重新查词会按新版本建立或复用服务。旧页面仍绑定原服务；手动验证时必须生成新页面。模板或脚本修改同样需要重新查词，一般无需重启 Anki。
 
 ## 打包
+
+查询性能回归可运行 `uv run --frozen python scripts/benchmark_lookup.py --runs 5 running tournament apple`。每个样本启动独立 CLI 进程并接收完整 HTML；首次样本是否包含服务启动取决于服务是否已运行。该脚本读取本机配置与 Anki，不修改卡片；不输出 HTML 或操作令牌。单元测试验证批量大小、结果顺序、牌组过滤和重复查询时重新读取 Anki，避免使用易受机器负载影响的固定耗时断言。
 
 `scripts/build_release.py` 生成 `dist/goldendict-anki-recaller-source.zip`，并删除旧的 `dist/goldendict-anki-recaller.ankiaddon` 构建产物。文档更新后重新打包，确保发布包与工作区一致。升级说明应保留“删除或禁用旧队列插件后重启 Anki”的要求，避免旧补丁继续影响原生调度。
 

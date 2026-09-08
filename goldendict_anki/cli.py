@@ -129,18 +129,20 @@ def lookup(client, config, word, full_scan=False):
         raise BridgeError(f"目标笔记没有字段 {config['field']}，请检查字段名（区分大小写）。")
     matched = [(form, note) for form in forms
                for note in matched_by_form[normalize(form, config['case_sensitive'])]]
+    # notesInfo already supplies card IDs. Fetch only exact matches, in batches,
+    # instead of two additional HTTP round trips for every matching note.
+    cids = list(dict.fromkeys(cid for _, note in matched for cid in note['cards']))
+    by_id = {}
+    for offset in range(0, len(cids), 250):
+        for card in client.call('cardsInfo', cards=cids[offset:offset + 250]):
+            if card:
+                by_id[card['cardId']] = card
     cards = []
     for matched_form, note in matched:
-        nid = note['noteId']
         note_fields = {name: data.get('value', '') for name, data in note.get('fields', {}).items()}
-        cids = client.call('findCards', query=f'{scope} nid:{int(nid)}'.strip())
-        if cids:
-            for card in client.call('cardsInfo', cards=cids):
-                if card:
-                    item = dict(card)
-                    item['_fields'] = note_fields
-                    item['_matched_word'] = matched_form
-                    cards.append(item)
+        for cid in note['cards']:
+            if cid in by_id:
+                cards.append(dict(by_id[cid], _fields=note_fields, _matched_word=matched_form))
     deck = config['deck']
     return [c for c in cards if not deck or c['deckName'] == deck or c['deckName'].startswith(deck + '::')]
 
@@ -328,6 +330,10 @@ def main(argv=None):
             raise BridgeError('请输入 1～500 个字符的查询词。')
         if args.unsuspend and not args.promote:
             raise BridgeError('--unsuspend 必须和 --promote 同时使用。')
+        if args.format == 'html' and not args.promote:
+            from .bridge import lookup_html
+            print(lookup_html(config, word, args.full_scan))
+            return 0
         cards = lookup(client, config, word, args.full_scan)
         message = ''
         if args.promote:

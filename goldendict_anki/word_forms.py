@@ -1,8 +1,6 @@
 """English inflection fallback for dictionary-headword lookup."""
 import re
 
-import simplemma
-
 ENGLISH_WORD = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)*\Z")
 
 
@@ -12,6 +10,7 @@ def lookup_forms(word, enabled=True):
     forms = [exact]
     if not enabled or not ENGLISH_WORD.fullmatch(exact):
         return forms
+    import simplemma
     lemma = simplemma.lemmatize(exact.casefold(), lang='en', greedy=False)
     if exact.isupper():
         lemma = lemma.upper()

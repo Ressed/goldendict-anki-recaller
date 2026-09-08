@@ -14,7 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from .cli import BridgeError, Client, promote_card
+from .cli import BridgeError, Client, lookup, promote_card, render
 
 IDLE_SECONDS = 1800
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +61,18 @@ class Handler(BaseHTTPRequestHandler):
             self.server.last_used = time.monotonic()
             if self.path == '/health':
                 self.reply(200, result=True)
+            elif self.path == '/lookup':
+                params = data.get('params', {})
+                if (not isinstance(params, dict) or set(params) != {'word', 'full_scan'}
+                        or not isinstance(params['word'], str)
+                        or not params['word'].strip() or len(params['word']) > 500
+                        or type(params['full_scan']) is not bool):
+                    raise BridgeError('无效的查询参数。')
+                cards = lookup(self.server.client, self.server.config, **params)
+                info = {'url': f'http://127.0.0.1:{self.server.server_port}',
+                        'token': self.server.token}
+                self.reply(200, result=render(params['word'], cards,
+                    config=self.server.config, bridge=info))
             elif self.path == '/promote':
                 params = data.get('params', {})
                 if not isinstance(params, dict) or set(params) != {'card_id', 'word', 'deck', 'unsuspend'}:
@@ -96,7 +108,9 @@ def ensure_bridge(config):
     config = dict(config, api_key=os.environ.get('ANKICONNECT_API_KEY') or config.get('api_key'))
     # Reuse one process per configuration and code revision. Never expose the
     # AnkiConnect key in the generated dictionary HTML or process command line.
-    revision = hashlib.sha256(Path(__file__).read_bytes() + (ROOT / 'goldendict_anki/cli.py').read_bytes()).hexdigest()
+    sources = sorted(path for path in (ROOT / 'goldendict_anki').rglob('*')
+                     if path.suffix in ('.py', '.html', '.css', '.js'))
+    revision = hashlib.sha256(b''.join(path.read_bytes() for path in sources)).hexdigest()
     identity = json.dumps([str(ROOT), config, revision], sort_keys=True).encode()
     directory = Path(tempfile.gettempdir()) / 'goldendict-anki-bridge'
     directory.mkdir(exist_ok=True, mode=0o700)
@@ -129,6 +143,26 @@ def ensure_bridge(config):
         raise BridgeError('本地按钮服务启动失败；可重新查词或使用命令行 --promote。') from exc
     finally:
         process.stdout.close()
+
+
+def lookup_html(config, word, full_scan=False):
+    """Keep expensive imports and lemma dictionaries warm, never cache Anki data."""
+    info = ensure_bridge(config)
+    body = json.dumps({'token': info['token'],
+                       'params': {'word': word, 'full_scan': full_scan}}).encode('utf-8')
+    request = urllib.request.Request(info['url'] + '/lookup', body,
+                                     {'Content-Type': 'text/plain'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=config['timeout']) as response:
+            reply = json.load(response)
+        if reply.get('error'):
+            raise BridgeError(reply['error'])
+        if not isinstance(reply.get('result'), str):
+            raise ValueError('invalid lookup response')
+        return reply['result']
+    except (OSError, ValueError) as exc:
+        raise BridgeError('本地查询服务连接失败或超时，请重新查词。') from exc
 
 
 def main():

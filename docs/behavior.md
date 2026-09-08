@@ -26,11 +26,11 @@
 
 ## 本地按钮服务
 
-`goldendict_anki/bridge.py` 只解决 GoldenDict 改写 Origin 导致的浏览器通信问题。HTML 查询有可操作新卡时按需启动，随机绑定 `127.0.0.1` 端口；同一配置和代码版本复用进程，空闲 30 分钟退出。服务信息位于系统临时目录 `goldendict-anki-bridge`，不进入发布包。
+`goldendict_anki/bridge.py` 处理 HTML 查询和 GoldenDict 改写 Origin 后的按钮通信。HTML 查询时按需启动，随机绑定 `127.0.0.1` 端口；同一配置和代码版本复用进程，空闲 30 分钟退出。词形库和模板在进程内复用，Anki 查询结果不缓存。服务信息位于系统临时目录 `goldendict-anki-bridge`，不进入发布包。
 
-按钮发送随机令牌及所选卡信息；服务只提供健康检查和提队入口，重新验证卡片后使用标准 AnkiConnect API。它不允许网页指定任意 AnkiConnect action，不接管调度器。AnkiConnect API key 不放入 HTML，也不需要浏览器访问授权或 CORS 配置修改。
+按钮发送随机令牌及所选卡信息；服务只提供健康检查、只读词头查询和提队入口，重新验证卡片后使用标准 AnkiConnect API。查询入口只接受词头与全量扫描开关，配置由服务端持有；HTML 查询的整体等待上限为配置中的 `timeout`，单次 AnkiConnect 请求仍使用该超时。它不允许网页指定任意 AnkiConnect action，不接管调度器。AnkiConnect API key 不放入 HTML，也不需要浏览器访问授权或 CORS 配置修改。
 
-页面过期或本地服务退出时，重新查词会重新建立连接。服务复用标识包含项目路径、有效配置以及 `bridge.py`、`cli.py` 的内容摘要；这些代码或配置变化后，新查询会连接新服务，已打开的旧页面不会自动切换。无需为普通代码更新重启 Anki。不要分享带操作令牌的 HTML。纯命令行提队不依赖这个服务。
+页面过期或本地服务退出时，重新查词会重新建立连接。服务复用标识包含项目路径、有效配置以及包内 Python、HTML、CSS 和 JavaScript 的内容摘要；这些文件或配置变化后，新查询会连接新服务，已打开的旧页面不会自动切换。无需为普通代码更新重启 Anki。不要分享带操作令牌的 HTML。纯命令行提队不依赖这个服务。
 
 
 ## 文件与验证

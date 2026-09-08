@@ -23,9 +23,9 @@ class BridgeTests(unittest.TestCase):
     def test_lookup_falls_back_to_lemma(self):
         api = Mock()
         api.call.side_effect = [[100], [
-            {'noteId': 100, 'fields': {'Word': {'value': 'run'},
+            {'noteId': 100, 'cards': [1], 'fields': {'Word': {'value': 'run'},
               'Definition': {'value': 'move quickly'}}}],
-            [1], [card()]]
+            [card()]]
         cards = app.lookup(api, app.DEFAULTS, 'running')
         self.assertEqual(cards[0]['_matched_word'], 'run')
         self.assertIn('OR', api.call.call_args_list[0].kwargs['query'])
@@ -37,13 +37,13 @@ class BridgeTests(unittest.TestCase):
     def test_exact_headword_and_lemma_are_both_returned(self):
         api = Mock()
         api.call.side_effect = [[100, 101], [
-            {'noteId': 100, 'fields': {'Word': {'value': 'dogs'}}},
-            {'noteId': 101, 'fields': {'Word': {'value': 'dog'}}}],
-            [1], [card()], [2], [card(2)]]
+            {'noteId': 100, 'cards': [1], 'fields': {'Word': {'value': 'dogs'}}},
+            {'noteId': 101, 'cards': [2], 'fields': {'Word': {'value': 'dog'}}}],
+            [card(2), card()]]
         cards = app.lookup(api, app.DEFAULTS, 'dogs')
         self.assertEqual([c['_matched_word'] for c in cards], ['dogs', 'dog'])
-        self.assertIn('nid:100', api.call.call_args_list[2].kwargs['query'])
-        self.assertIn('nid:101', api.call.call_args_list[4].kwargs['query'])
+        self.assertEqual(api.call.call_args_list[2], call('cardsInfo', cards=[1, 2]))
+        self.assertEqual(api.call.call_count, 3)
 
     def promotion_api(self, c=None, word='x'):
         api = Mock()
@@ -123,12 +123,13 @@ class BridgeTests(unittest.TestCase):
     def test_lookup_exact_and_scope(self):
         api = Mock()
         api.call.side_effect = [[100, 101], [
-            {'noteId': 100, 'fields': {'Word': {'value': '<b>Tour</b>nament'}}},
-            {'noteId': 101, 'fields': {'Word': {'value': 'tournaments'}}}],
-            [1, 2], [card(), card(2, deck='Other')]]
+            {'noteId': 100, 'cards': [1, 2], 'fields': {'Word': {'value': '<b>Tour</b>nament'}}},
+            {'noteId': 101, 'cards': [3], 'fields': {'Word': {'value': 'tournaments'}}}],
+            [card(), card(2, deck='Other')]]
         config = app.DEFAULTS | {'deck': 'English'}
         self.assertEqual([c['cardId'] for c in app.lookup(api, config, 'tournament')], [1])
-        self.assertEqual([c.args[0] for c in api.call.call_args_list], ['findNotes', 'notesInfo', 'findCards', 'cardsInfo'])
+        self.assertEqual([c.args[0] for c in api.call.call_args_list], ['findNotes', 'notesInfo', 'cardsInfo'])
+        self.assertEqual(api.call.call_args, call('cardsInfo', cards=[1, 2]))
 
     def test_missing_field(self):
         api = Mock()
@@ -140,6 +141,25 @@ class BridgeTests(unittest.TestCase):
         api = Mock()
         api.call.return_value = []
         self.assertEqual(app.lookup(api, app.DEFAULTS, 'missing'), [])
+
+    def test_lookup_batches_cards_and_preserves_order_and_scope(self):
+        api = Mock()
+        notes = [{'noteId': i, 'cards': [i], 'fields': {'Word': {'value': 'x'}}}
+                 for i in range(501)]
+        def respond(action, **params):
+            if action == 'findNotes':
+                return list(range(501))
+            if action == 'notesInfo':
+                return [notes[i] for i in params['notes']]
+            if action == 'cardsInfo':
+                return [None if i == 1 else card(i, deck='Other' if i == 2 else 'English::Child')
+                        for i in reversed(params['cards'])]
+            self.fail(f'unexpected call: {action}')
+        api.call.side_effect = respond
+        cards = app.lookup(api, app.DEFAULTS | {'deck': 'English', 'lemmatize': False}, 'x')
+        self.assertEqual([c['cardId'] for c in cards], [0] + list(range(3, 501)))
+        self.assertEqual([len(c.kwargs['cards']) for c in api.call.call_args_list
+                          if c.args[0] == 'cardsInfo'], [250, 250, 1])
 
     def test_review_learning_buried_unchanged(self):
         api = Mock()
